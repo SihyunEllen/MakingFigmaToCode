@@ -1,0 +1,26 @@
+{
+  "name": "MakeCodeForRoamie",
+  "id": "1547173363605040561",
+  "api": "1.0.0",
+  "main": "code.js",
+  "capabilities": [
+    "codegen", "vscode"
+  ],
+  "enableProposedApi": false,
+  "documentAccess": "dynamic-page",
+  "editorType": [
+    "dev", "figma"
+  ],
+  "ui": "ui.html",
+  "codegenLanguages": [
+    {
+      "label": "React Native + TypeScript",
+      "value": "react-native-typescript"
+    }
+  ],
+  "networkAccess": {
+    "allowedDomains": [
+      "none"
+    ]
+  }
+}
