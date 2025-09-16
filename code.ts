@@ -1,33 +1,162 @@
-// This plugin will generate a sample codegen plugin
-// that appears in the Element tab of the Inspect panel.
+console.log("🔥 HOT TEST!");
+export const colors = {
+  dark : "#1E1E1E",
+  white: "#FAFAF8",
+  blue: "#007AFF",
+  gray: "#8B8383",
+  lightGray: "#D9D9D9",
+  blueGray:"94A3B8",
+  green: "0CEC80"
+};
 
-// This file holds the main code for plugins. Code in this file has access to
-// the *figma document* via the figma global object.
-// You can access browser APIs in the <script> tag inside "ui.html" which has a
-// full browser environment (See https://www.figma.com/plugin-docs/how-plugins-run).
+export const fontSizes = {
+  xs: 10,   
+  sm: 12,   
+  base: 14, 
+  md: 16,   
+  lg: 18,   
+  xl: 20, 
+  "2xl": 22,
+  "3xl": 24,
+} as const;
 
-// This provides the callback to generate the code.
-interface ConvertedNode {
-  type: 'Text' | 'TouchableOpacity' | 'View' | 'Image';
+export const spacing = {
+  xs: 4,
+  sm: 8,
+  smd:12,
+  md: 16,
+  lg: 24,
+  xl: 32,
+};
+
+export const radius = {
+  sm: 4,
+  md: 10,
+  lg: 16,
+};
+
+export interface ConvertedNode {
+  type: 'Text' | 'TouchableOpacity' | 'View' | 'Image' | 'Button';
   props: Record<string, any>;
   children?: ConvertedNode[];
   text?: string;
   className?: string;
+  tsxString?: string; // Button 타입일 때 사용
+  importStatement?: string;  // 추가
 }
 
-interface TSXGenerationOptions {
+export interface TSXGenerationOptions {
   indentSize: number;
   useSpaces: boolean;
 }
 
-class NodeConverter {
+// Symbol 값 안전 처리 유틸리티 함수들
+export function isSymbol(value: any): boolean {
+  return typeof value === "symbol";
+}
+
+export function safeNumber(value: any, defaultValue: number = 0): number {
+  if (isSymbol(value)) {
+    console.warn("Symbol 값 감지, 기본값 반환:", defaultValue);
+    return defaultValue;
+  }
+  
+  // undefined, null 처리
+  if (value === undefined || value === null) {
+    console.warn("undefined/null 값 감지, 기본값 반환:", defaultValue);
+    return defaultValue;
+  }
+  
+  // 문자열 숫자 변환 시도
+  if (typeof value === "string") {
+    const parsed = parseFloat(value);
+    if (!isNaN(parsed)) {
+      return parsed;
+    }
+  }
+  
+  if (typeof value !== "number" || isNaN(value)) {
+    console.warn("유효하지 않은 숫자 값, 기본값 반환:", defaultValue, "받은 값:", value);
+    return defaultValue;
+  }
+  return value;
+}
+
+export function safeString(value: any, defaultValue: string = ""): string {
+  if (isSymbol(value)) {
+    console.warn("Symbol 값 감지, 기본값 반환:", defaultValue);
+    return defaultValue;
+  }
+  if (typeof value !== "string") {
+    console.warn("유효하지 않은 문자열 값, 기본값 반환:", defaultValue);
+    return defaultValue;
+  }
+  return value;
+}
+
+// fontWeight 전용 안전 변환 함수
+export function safeFontWeight(value: any): number {
+  if (isSymbol(value)) {
+    console.warn("Symbol fontWeight 감지, 기본값 400 반환");
+    return 400;
+  }
+  
+  if (typeof value === "number" && !isNaN(value)) {
+    return value;
+  }
+  
+  if (typeof value === "string") {
+    // 문자열 fontWeight를 숫자로 변환
+    const lowerValue = value.toLowerCase();
+    switch (lowerValue) {
+      case "thin": case "100": return 100;
+      case "extralight": case "ultralight": case "200": return 200;
+      case "light": case "300": return 300;
+      case "normal": case "regular": case "400": return 400;
+      case "medium": case "500": return 500;
+      case "semibold": case "demibold": case "600": return 600;
+      case "bold": case "700": return 700;
+      case "extrabold": case "ultrabold": case "800": return 800;
+      case "black": case "heavy": case "900": return 900;
+      default: return 400;
+    }
+  }
+  
+  console.warn("알 수 없는 fontWeight 값, 기본값 400 반환:", value);
+  return 400;
+}
+
+// fontSize 전용 안전 변환 함수
+export function safeFontSize(value: any, defaultValue: number = 14): number {
+  if (isSymbol(value)) {
+    console.warn("Symbol fontSize 감지, 기본값 반환:", defaultValue);
+    return defaultValue;
+  }
+  
+  if (typeof value === "number" && !isNaN(value) && value > 0) {
+    return value;
+  }
+  
+  console.warn("유효하지 않은 fontSize 값, 기본값 반환:", defaultValue, "받은 값:", value);
+  return defaultValue;
+}
+
+// 안전한 노드 크기 추출 함수
+export function getNodeSizeSafe(node: SceneNode): { width: number; height: number } {
+  const width = safeNumber(node.width, 0);
+  const height = safeNumber(node.height, 0);
+
+  return { width, height };
+}
+
+export class NodeConverter {
   
   // TextNode를 Text로 변환 (React Native + NativeWind)
   private convertTextNode(node: TextNode): ConvertedNode {
-    const fontSize = node.fontSize as number || 14;
-    const fontWeight = node.fontWeight as number || 400;
-    const textAlign = node.textAlignHorizontal || 'LEFT';
-    const color = this.extractColor(node.fills);
+    const fontSize = safeFontSize(node.fontSize, fontSizes.base);
+    const fontWeight = safeFontWeight(node.fontWeight);
+    const textAlign = safeString(node.textAlignHorizontal, 'LEFT');
+    const color = 'default'; // 기본 텍스트 색상 사용
     
     // NativeWind 클래스 생성
     const className = this.generateTextClassName(fontSize, fontWeight, textAlign, color);
@@ -40,71 +169,99 @@ class NodeConverter {
     };
   }
 
-  // InstanceNode를 TouchableOpacity 또는 Image로 변환 (React Native + NativeWind)
+  //ComponentNode를 Button 또는 Image로 변환 (React Native + NativeWind)
   private async convertInstanceNode(node: InstanceNode): Promise<ConvertedNode> {
     const mainComponent = await node.getMainComponentAsync();
     const componentName = mainComponent?.name || '';
     const isButton = this.isButtonComponent(componentName);
     const isIcon = this.isSvgIconComponent(componentName);
     
+    console.log("Component name:", componentName);
+    console.log("Is button:", isButton);
+    
     if (isButton) {
-      const className = this.generateButtonClassName(node);
+      const children = await this.convertChildren(node.children);
+      const tsxString = this.parseButtonToTSX(componentName, children);
+      
       return {
-        type: 'TouchableOpacity',
+        type: 'Button',
         props: {},
-        className,
-        children: await this.convertChildren(node.children)
+        tsxString: tsxString
       };
     } else if (isIcon) {
-      const className = this.generateImageClassName(node);
+      const iconName = componentName.toLowerCase().replace(/\s+/g, '_');
       return {
         type: 'Image',
         props: {
-          source: `{require('./assets/icons/${componentName.toLowerCase().replace(/\s+/g, '-')}.png')}`
+          source: `{${iconName}}`  // {icn_walk} 형태로
         },
-        className
+        className: `w-[24px] h-[24px]`, // 기본 아이콘 크기
+        importStatement: `import ${iconName} from '@/assets/images/${iconName}.svg';`
       };
     } else {
-      // 기본적으로 TouchableOpacity로 처리
-      const className = this.generateButtonClassName(node);
+      // 기본적으로 View로 처리
+      const { width, height } = getNodeSizeSafe(node);
       return {
-        type: 'TouchableOpacity',
+        type: 'View',
         props: {},
-        className,
+        className: `w-[${Math.round(width)}px] h-[${Math.round(height)}px]`,
         children: await this.convertChildren(node.children)
       };
     }
   }
 
-  // FrameNode를 View로 변환 (React Native + NativeWind)
-  private async convertFrameNode(node: FrameNode): Promise<ConvertedNode> {
-    const hasAutoLayout = node.layoutMode !== 'NONE';
-    const className = this.generateViewClassName(node, hasAutoLayout);
+  // ComponentNode를 Button 또는 Image로 변환 (React Native + NativeWind)
+  private async convertComponentNode(node: ComponentNode): Promise<ConvertedNode> {
+    const componentName = node.name || '';
+    const isButton = this.isButtonComponent(componentName);
+    const isIcon = this.isSvgIconComponent(componentName);
     
-    return {
-      type: 'View',
-      props: {},
-      className,
-      children: await this.convertChildren(node.children)
-    };
+    console.log("Component name:", componentName);
+    console.log("Is button:", isButton);
+    
+    if (isButton) {
+      const children = await this.convertChildren(node.children);
+      const tsxString = this.parseButtonToTSX(componentName, children);
+      
+      return {
+        type: 'Button',
+        props: {},
+        tsxString: tsxString
+      };
+    } else if (isIcon) {
+      const iconName = componentName.toLowerCase().replace(/\s+/g, '_');
+      return {
+        type: 'Image',
+        props: {
+          source: `{${iconName}}`
+        },
+        className: `w-[24px] h-[24px]`,
+        importStatement: `import ${iconName} from '@/assets/images/${iconName}.svg';`
+      };
+    } else {
+      // 기본적으로 View로 처리
+      const { width, height } = getNodeSizeSafe(node);
+      return {
+        type: 'View',
+        props: {},
+        className: `w-[${Math.round(width)}px] h-[${Math.round(height)}px]`,
+        children: await this.convertChildren(node.children)
+      };
+    }
   }
 
-  // 메인 변환 함수
+  // 메인 변환 함수 (TEXT, INSTANCE, COMPONENT 처리)
   public async convertNode(node: SceneNode): Promise<ConvertedNode> {
     switch (node.type) {
       case 'TEXT':
         return this.convertTextNode(node as TextNode);
       case 'INSTANCE':
         return await this.convertInstanceNode(node as InstanceNode);
-      case 'FRAME':
-        return this.convertFrameNode(node as FrameNode);
+      case 'COMPONENT':
+        return await this.convertComponentNode(node as ComponentNode);
       default:
-        // 기본적으로 View로 처리
-        return {
-          type: 'View',
-          props: {},
-          className: `w-[${Math.round(node.width || 0)}px] h-[${Math.round(node.height || 0)}px]`
-        };
+        // Frame이나 다른 노드는 처리하지 않음
+        throw new Error(`지원하지 않는 노드 타입: ${node.type}`);
     }
   }
 
@@ -122,14 +279,15 @@ class NodeConverter {
   private generateTextClassName(fontSize: number, fontWeight: number, textAlign: string, color: string): string {
     const classes = [];
     
-    // 폰트 크기
-    if (fontSize <= 12) classes.push('text-xs');
-    else if (fontSize <= 14) classes.push('text-sm');
-    else if (fontSize <= 16) classes.push('text-base');
-    else if (fontSize <= 18) classes.push('text-lg');
-    else if (fontSize <= 20) classes.push('text-xl');
-    else if (fontSize <= 24) classes.push('text-2xl');
-    else if (fontSize <= 30) classes.push('text-3xl');
+    // 폰트 크기 
+    if (fontSize <= fontSizes.xs) classes.push('text-xs');
+    else if (fontSize <= fontSizes.sm) classes.push('text-sm');
+    else if (fontSize <= fontSizes.base) classes.push('text-base');
+    else if (fontSize <= fontSizes.md) classes.push('text-md');
+    else if (fontSize <= fontSizes.lg) classes.push('text-lg');
+    else if (fontSize <= fontSizes.xl) classes.push('text-xl');
+    else if (fontSize <= fontSizes["2xl"]) classes.push('text-2xl');
+    else if (fontSize <= fontSizes["3xl"]) classes.push('text-3xl');
     else classes.push('text-4xl');
     
     // 폰트 굵기
@@ -145,294 +303,79 @@ class NodeConverter {
     else if (textAlign === 'RIGHT') classes.push('text-right');
     else classes.push('text-left');
     
-    // 색상 (hex로 변환)
-    const hexColor = this.rgbaToHex(color);
-    if (hexColor !== '#000000') {
-      classes.push(`text-[${hexColor}]`);
-    }
+    // 기본 텍스트 색상 사용 (색상 처리 생략)
     
     return classes.join(' ');
   }
 
-  private generateButtonClassName(node: InstanceNode | FrameNode): string {
-    const classes = [];
+  // 내가 정한 Button 컴포넌트 방식대로 변환하는 코드 
+  private parseButtonToTSX(componentName: string, children: ConvertedNode[]): string {
+    console.log("Component name:", componentName);
+    // "Button/Rounded/Small" -> ["Button", "Rounded", "Small"]
+    const parts = componentName.split('/');
     
-    // 크기
-    classes.push(`w-[${Math.round(node.width)}px]`);
-    classes.push(`h-[${Math.round(node.height)}px]`);
-    
-    // 배경색
-    const bgColor = this.extractColor(node.fills);
-    const hexBgColor = this.rgbaToHex(bgColor);
-    if (hexBgColor !== 'transparent') {
-      classes.push(`bg-[${hexBgColor}]`);
+    if (parts.length !== 3 || parts[0] !== 'Button') {
+      return this.generateDefaultButtonTSX(componentName, children);
     }
     
-    // 테두리 반경
-    const borderRadius = this.extractBorderRadius(node);
-    if (typeof borderRadius === 'number' && borderRadius > 0) {
-      if (borderRadius <= 2) classes.push('rounded-sm');
-      else if (borderRadius <= 4) classes.push('rounded');
-      else if (borderRadius <= 6) classes.push('rounded-md');
-      else if (borderRadius <= 8) classes.push('rounded-lg');
-      else if (borderRadius <= 12) classes.push('rounded-xl');
-      else if (borderRadius <= 16) classes.push('rounded-2xl');
-      else if (borderRadius >= node.height / 2) classes.push('rounded-full');
-      else classes.push(`rounded-[${borderRadius}px]`);
-    }
+    const [, designType, size] = parts;  // -> ["Button/Rounded/Small]이런식으로 이름 지었음
     
-    // 기본 스타일
-    classes.push('items-center justify-center');
+    // 디자인 타입을 컴포넌트 이름으로 변환 (첫 글자 대문자)
+    const componentName_camelCase = designType.charAt(0).toUpperCase() + designType.slice(1).toLowerCase() + 'Button';
     
-    return classes.join(' ');
+    // 자식 요소의 텍스트 추출
+    const childrenText = this.extractChildrenText(children);
+    
+    return `<${componentName_camelCase} size="${size.toLowerCase()}">${childrenText}</${componentName_camelCase}>`;
   }
-
-  private generateImageClassName(node: InstanceNode): string {
-    const classes = [];
-    
-    // 크기
-    classes.push(`w-[${Math.round(node.width)}px]`);
-    classes.push(`h-[${Math.round(node.height)}px]`);
-    
-    return classes.join(' ');
-  }
-
-  private generateViewClassName(node: FrameNode, hasAutoLayout: boolean): string {
-    const classes = [];
-    
-    // 크기
-    classes.push(`w-[${Math.round(node.width)}px]`);
-    classes.push(`h-[${Math.round(node.height)}px]`);
-    
-    // 배경색
-    const bgColor = this.extractColor(node.fills);
-    const hexBgColor = this.rgbaToHex(bgColor);
-    if (hexBgColor !== 'transparent') {
-      classes.push(`bg-[${hexBgColor}]`);
+  
+  private extractChildrenText(children: ConvertedNode[]): string {
+    if (!children || children.length === 0) {
+      return '';
     }
     
-    // 테두리 반경
-    const borderRadius = this.extractBorderRadius(node);
-    if (typeof borderRadius === 'number' && borderRadius > 0) {
-      if (borderRadius <= 2) classes.push('rounded-sm');
-      else if (borderRadius <= 4) classes.push('rounded');
-      else if (borderRadius <= 6) classes.push('rounded-md');
-      else if (borderRadius <= 8) classes.push('rounded-lg');
-      else if (borderRadius <= 12) classes.push('rounded-xl');
-      else if (borderRadius <= 16) classes.push('rounded-2xl');
-      else if (borderRadius >= Math.min(node.width, node.height) / 2) classes.push('rounded-full');
-      else classes.push(`rounded-[${borderRadius}px]`);
-    }
-    
-    // AutoLayout 관련
-    if (hasAutoLayout) {
-      // Flex 방향
-      if (node.layoutMode === 'HORIZONTAL') {
-        classes.push('flex-row');
-      } else {
-        classes.push('flex-col');
+    // 첫 번째 텍스트 노드의 텍스트를 반환
+    for (const child of children) {
+      if (child.type === 'Text' && child.text) {
+        return child.text;
       }
-      
-      // 정렬
-      const alignItems = this.convertAlignItemsToNativeWind(node.counterAxisAlignItems);
-      const justifyContent = this.convertJustifyContentToNativeWind(node.primaryAxisAlignItems);
-      
-      if (alignItems) classes.push(alignItems);
-      if (justifyContent) classes.push(justifyContent);
-      
-      // 간격 (gap)
-      const spacing = node.itemSpacing || 0;
-      if (spacing > 0) {
-        if (spacing <= 1) classes.push('gap-0.5');
-        else if (spacing <= 2) classes.push('gap-0.5');
-        else if (spacing <= 4) classes.push('gap-1');
-        else if (spacing <= 6) classes.push('gap-1.5');
-        else if (spacing <= 8) classes.push('gap-2');
-        else if (spacing <= 12) classes.push('gap-3');
-        else if (spacing <= 16) classes.push('gap-4');
-        else if (spacing <= 20) classes.push('gap-5');
-        else if (spacing <= 24) classes.push('gap-6');
-        else classes.push(`gap-[${spacing}px]`);
-      }
-      
-      // 패딩
-      const paddingClasses = this.generatePaddingClasses(node);
-      classes.push(...paddingClasses);
-    }
-    
-    return classes.join(' ');
-  }
-
-  private generatePaddingClasses(node: FrameNode): string[] {
-    const classes = [];
-    const top = node.paddingTop || 0;
-    const right = node.paddingRight || 0;
-    const bottom = node.paddingBottom || 0;
-    const left = node.paddingLeft || 0;
-    
-    // 모든 패딩이 같은 경우
-    if (top === right && right === bottom && bottom === left && top > 0) {
-      if (top <= 1) classes.push('p-0.5');
-      else if (top <= 2) classes.push('p-0.5');
-      else if (top <= 4) classes.push('p-1');
-      else if (top <= 6) classes.push('p-1.5');
-      else if (top <= 8) classes.push('p-2');
-      else if (top <= 12) classes.push('p-3');
-      else if (top <= 16) classes.push('p-4');
-      else if (top <= 20) classes.push('p-5');
-      else if (top <= 24) classes.push('p-6');
-      else classes.push(`p-[${top}px]`);
-    } else {
-      // 개별 패딩
-      if (top > 0) {
-        if (top <= 4) classes.push('pt-1');
-        else if (top <= 8) classes.push('pt-2');
-        else if (top <= 12) classes.push('pt-3');
-        else if (top <= 16) classes.push('pt-4');
-        else classes.push(`pt-[${top}px]`);
-      }
-      if (right > 0) {
-        if (right <= 4) classes.push('pr-1');
-        else if (right <= 8) classes.push('pr-2');
-        else if (right <= 12) classes.push('pr-3');
-        else if (right <= 16) classes.push('pr-4');
-        else classes.push(`pr-[${right}px]`);
-      }
-      if (bottom > 0) {
-        if (bottom <= 4) classes.push('pb-1');
-        else if (bottom <= 8) classes.push('pb-2');
-        else if (bottom <= 12) classes.push('pb-3');
-        else if (bottom <= 16) classes.push('pb-4');
-        else classes.push(`pb-[${bottom}px]`);
-      }
-      if (left > 0) {
-        if (left <= 4) classes.push('pl-1');
-        else if (left <= 8) classes.push('pl-2');
-        else if (left <= 12) classes.push('pl-3');
-        else if (left <= 16) classes.push('pl-4');
-        else classes.push(`pl-[${left}px]`);
+      // 재귀적으로 자식에서 텍스트 찾기
+      if (child.children) {
+        const nestedText = this.extractChildrenText(child.children);
+        if (nestedText) {
+          return nestedText;
+        }
       }
     }
     
-    return classes;
+    return '';
+  }
+  
+  private generateDefaultButtonTSX(componentName: string, children: ConvertedNode[]): string { //default 버튼
+    const childrenText = this.extractChildrenText(children);
+    return `<TouchableOpacity className="items-center justify-center px-4 py-3 bg-blue rounded-md">
+    <Text className="text-white text-base font-medium">${childrenText}</Text>
+  </TouchableOpacity>`;
   }
 
-  private convertAlignItemsToNativeWind(align: string | undefined): string | null {
-    switch (align) {
-      case 'MIN': return 'items-start';
-      case 'MAX': return 'items-end';
-      case 'CENTER': return 'items-center';
-      case 'BASELINE': return 'items-baseline';
-      default: return null;
-    }
-  }
-
-  private convertJustifyContentToNativeWind(align: string | undefined): string | null {
-    switch (align) {
-      case 'MIN': return 'justify-start';
-      case 'MAX': return 'justify-end';
-      case 'CENTER': return 'justify-center';
-      case 'SPACE_BETWEEN': return 'justify-between';
-      default: return null;
-    }
-  }
-
-  private rgbaToHex(rgba: string): string {
-    if (rgba === 'transparent') return 'transparent';
-    
-    const match = rgba.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*([\d.]+))?\)/);
-    if (!match) return '#000000';
-    
-    const [, r, g, b, a] = match;
-    const alpha = a ? parseFloat(a) : 1;
-    
-    if (alpha === 0) return 'transparent';
-    
-    const toHex = (n: number) => {
-      const hex = Math.round(n).toString(16);
-      return hex.length === 1 ? '0' + hex : hex;
-    };
-    
-    return `#${toHex(parseInt(r))}${toHex(parseInt(g))}${toHex(parseInt(b))}`;
-  }
 
   // 유틸리티 함수들
   private isButtonComponent(name: string): boolean {
-    const buttonKeywords = ['button', 'btn', 'cta', 'action'];
+    const buttonKeywords = ['Button'];
     return buttonKeywords.some(keyword => 
       name.toLowerCase().includes(keyword)
     );
   }
 
   private isSvgIconComponent(name: string): boolean {
-    const iconKeywords = ['icon', 'svg', 'symbol'];
+    const iconKeywords = ['icn', 'svg', 'symbol'];
     return iconKeywords.some(keyword => 
       name.toLowerCase().includes(keyword)
     );
   }
 
-  private extractColor(fills: readonly Paint[] | PluginAPI['mixed']): string {
-    if (!fills || fills === figma.mixed || !Array.isArray(fills)) {
-      return 'transparent';
-    }
-    
-    const solidFill = fills.find(fill => fill.type === 'SOLID') as SolidPaint;
-    if (solidFill) {
-      const { r, g, b } = solidFill.color;
-      const opacity = solidFill.opacity || 1;
-      return `rgba(${Math.round(r * 255)}, ${Math.round(g * 255)}, ${Math.round(b * 255)}, ${opacity})`;
-    }
-    
-    return 'transparent';
-  }
-
-  private extractBorderRadius(node: any): number | string {
-    if (node.cornerRadius !== undefined) {
-      return node.cornerRadius;
-    }
-    if (node.topLeftRadius !== undefined) {
-      const { topLeftRadius, topRightRadius, bottomRightRadius, bottomLeftRadius } = node;
-      if (topLeftRadius === topRightRadius && topRightRadius === bottomRightRadius && bottomRightRadius === bottomLeftRadius) {
-        return topLeftRadius;
-      }
-      return `${topLeftRadius}px ${topRightRadius}px ${bottomRightRadius}px ${bottomLeftRadius}px`;
-    }
-    return 0;
-  }
-
-  private extractPadding(node: FrameNode): string {
-    const top = node.paddingTop || 0;
-    const right = node.paddingRight || 0;
-    const bottom = node.paddingBottom || 0;
-    const left = node.paddingLeft || 0;
-    
-    if (top === right && right === bottom && bottom === left) {
-      return `${top}px`;
-    }
-    return `${top}px ${right}px ${bottom}px ${left}px`;
-  }
-
-  private convertAlignItems(align: string | undefined): string {
-    switch (align) {
-      case 'MIN': return 'flex-start';
-      case 'MAX': return 'flex-end';
-      case 'CENTER': return 'center';
-      case 'BASELINE': return 'baseline';
-      default: return 'stretch';
-    }
-  }
-
-  private convertJustifyContent(align: string | undefined): string {
-    switch (align) {
-      case 'MIN': return 'flex-start';
-      case 'MAX': return 'flex-end';
-      case 'CENTER': return 'center';
-      case 'SPACE_BETWEEN': return 'space-between';
-      default: return 'flex-start';
-    }
-  }
 }
-class TSXGenerator {
+export class TSXGenerator {
   private options: TSXGenerationOptions;
 
   constructor(options: TSXGenerationOptions = { indentSize: 2, useSpaces: true }) {
@@ -441,15 +384,24 @@ class TSXGenerator {
 
   public generateTSX(convertedNode: ConvertedNode, depth: number = 0): string {
     const indent = this.getIndent(depth);
-    const { type, props, children, text, className } = convertedNode;
+    const { type, props, children, text, className, tsxString, importStatement } = convertedNode;
 
     const propsString = this.propsToString(props);
     const classNameString = className ? ` className="${className}"` : '';
     const allProps = propsString + classNameString;
 
-    if (children && children.length > 0) {
+    // tsxString이 있으면 최우선으로 반환 (Button용)
+    if (tsxString) {
+      return `${indent}${tsxString}`;
+    }
+
+    if (importStatement) {
+      return `${indent}${importStatement}\n${indent}<${type}${allProps} />`;
+    }
+
+    if (children && children.length > 0) { // 자식 노드 재귀
       const childrenTSX = children
-        .map(child => this.generateTSX(child, depth + 1))
+        .map(child => this.generateTSX(child, depth + 1)) // map 함수로 자식 노드 재귀
         .join('\n');
       return `${indent}<${type}${allProps}>\n${childrenTSX}\n${indent}</${type}>`;
     }
@@ -461,7 +413,7 @@ class TSXGenerator {
     return `${indent}<${type}${allProps} />`;
   }
 
-  private getIndent(depth: number): string {
+  private getIndent(depth: number): string { // 들여쓰기 함수.
     const char = this.options.useSpaces ? ' ' : '\t';
     const size = this.options.useSpaces ? this.options.indentSize : 1;
     return char.repeat(depth * size);
@@ -485,6 +437,9 @@ class TSXGenerator {
 
 // ✅ Codegen 엔트리포인트
 figma.codegen.on("generate", async (event): Promise<CodegenResult[]> => {
+  console.log("Codegen started!");
+  console.log("Event:", event);
+  
   const converter = new NodeConverter();
   const generator = new TSXGenerator();
 
